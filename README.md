@@ -68,8 +68,7 @@ streamlit run chatbot.py
 - Add more hospital-specific questions to the dataset.
 - Implement the chatbot as a **web application** or integrate it with a **hospital website**.
 
-## License
-This project is for research and educational purposes. Contact the owner of the project for commercial use.
+
 
 
 
