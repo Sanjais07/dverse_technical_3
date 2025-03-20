@@ -105,7 +105,7 @@ def get_response(user_query):
     top_indices = torch.topk(similarity_scores, top_n).indices.tolist()
     relevant_context = " ".join(faq_df.iloc[i]["answer"] for i in top_indices)
     response = qa_pipeline(question=user_query, context=relevant_context)
-    return response["answer"] if response["score"] > 0.5 else "⚠️ I'm not sure. Please provide more details."
+    return response["answer"] if response["score"] > 0.5 else " I'm not sure. Please provide more details."
 
 user_input = st.text_input("You:", "", key="user_input")
 
@@ -115,7 +115,7 @@ if user_input:
     st.write(f"**Chatbot:** {response}")
 
 # Feedback and Learning for future enhancement
-st.subheader("📚 Improve Chatbot Knowledge")
+st.subheader(" Improve Chatbot Knowledge")
 st.write("If the answer is incorrect, provide the correct response below.")
 new_question = st.text_input("New Question:", "", key="new_question")
 new_answer = st.text_area("New Answer:", "", key="new_answer")
@@ -123,6 +123,6 @@ if st.button("Add to Knowledge Base"):
     if new_question and new_answer:
         faq_df = pd.concat([faq_df, pd.DataFrame([{ "question": new_question, "answer": new_answer }])], ignore_index=True)
         save_faq_data(faq_df, faq_file)
-        st.success("✅ New Q&A added successfully!")
+        st.success(" New Q&A added successfully!")
     else:
-        st.error("⚠️ Please provide both question and answer!")
+        st.error(" Please provide both question and answer!")
