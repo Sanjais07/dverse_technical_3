@@ -1,0 +1,128 @@
+import os
+import pandas as pd
+import string
+import re
+import json
+import torch
+import base64
+import streamlit as st
+from transformers import AutoTokenizer, AutoModelForQuestionAnswering, pipeline
+from sentence_transformers import SentenceTransformer, util
+
+# Load the FAQ Dataset
+faq_file = "D:\\deverse\\Sevenhillshospital_faq.txt"
+
+def load_faq_data(faq_file):
+    if os.path.exists(faq_file):
+        try:
+            with open(faq_file, "r", encoding="utf-8") as file:
+                faq_data = json.load(file)
+            faq_df = pd.DataFrame(faq_data)
+        except json.JSONDecodeError:
+            faq_df = pd.DataFrame(columns=["question", "answer"])
+    else:
+        faq_df = pd.DataFrame(columns=["question", "answer"])
+    return faq_df
+
+def save_faq_data(faq_df, faq_file):
+    faq_df.to_json(faq_file, orient="records", indent=4, force_ascii=False)
+
+def clean_text(text):
+    if not isinstance(text, str) or text.strip() == "":
+        return "empty"
+    text = text.lower()
+    text = re.sub(r"\[.*?\]", "", text)
+    text = re.sub(f"[{string.punctuation}]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+# Load the FAQ data
+faq_df = load_faq_data(faq_file)
+faq_df["Clean_Question"] = faq_df["question"].apply(clean_text)
+faq_df = faq_df[faq_df["Clean_Question"].str.strip() != "empty"].reset_index(drop=True)
+
+# Load the models
+sbert_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+faq_embeddings = sbert_model.encode(faq_df["Clean_Question"].tolist(), convert_to_tensor=True)
+
+model_name = "distilbert-base-uncased-distilled-squad"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForQuestionAnswering.from_pretrained(model_name)
+qa_pipeline = pipeline("question-answering", model=model, tokenizer=tokenizer)
+
+# Streamlit UI
+st.set_page_config(page_title="Seven Hills Hospital Chatbot", page_icon="🏥", layout="wide")
+
+# Function that encodes the image to Base64
+def get_base64_of_image(image_path):
+    with open(image_path, "rb") as img_file:
+        return base64.b64encode(img_file.read()).decode()
+
+# Background Image for the webpage
+background_image_path = "D:\\deverse\\background.jpg"
+if os.path.exists(background_image_path):
+    bg_image_base64 = get_base64_of_image(background_image_path)
+    bg_css = f"""
+    <style>
+        .stApp {{
+            background: url("data:image/jpg;base64,{bg_image_base64}") no-repeat center center fixed;
+            background-size: cover;
+        }}
+    </style>
+    """
+    st.markdown(bg_css, unsafe_allow_html=True)
+
+# Display Hospital Banner (Expanded Width, Fixed Height)
+st.image("D:\\deverse\\photo2.jpg", use_container_width=True)  # Updated parameter
+
+st.sidebar.image("D:\\deverse\\seven-hills-logo.png", width=120)
+st.sidebar.title("Seven Hills Hospital AI Chatbot")
+st.sidebar.write("Your AI assistant for hospital-related queries.")
+
+# Chat History in Sidebar of webpage
+st.sidebar.subheader("💬 Chat History")
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+for query, resp in st.session_state.chat_history:
+    st.sidebar.write(f"👤 **You:** {query}")
+    st.sidebar.write(f"🤖 **Bot:** {resp}")
+    st.sidebar.write("---")
+
+st.title("🏥 Seven Hills Hospital FAQ Chatbot")
+st.write("🤖 Ask a question related to the hospital!")
+
+def get_response(user_query):
+    user_query = clean_text(user_query)
+    user_embedding = sbert_model.encode(user_query, convert_to_tensor=True)
+    similarity_scores = util.pytorch_cos_sim(user_embedding, faq_embeddings)[0]
+    best_match_index = torch.argmax(similarity_scores).item()
+    best_match_score = similarity_scores[best_match_index].item()
+    
+    if best_match_score > 0.5:
+        return faq_df.iloc[best_match_index]["answer"]
+    
+    top_n = 3
+    top_indices = torch.topk(similarity_scores, top_n).indices.tolist()
+    relevant_context = " ".join(faq_df.iloc[i]["answer"] for i in top_indices)
+    response = qa_pipeline(question=user_query, context=relevant_context)
+    return response["answer"] if response["score"] > 0.5 else "⚠️ I'm not sure. Please provide more details."
+
+user_input = st.text_input("You:", "", key="user_input")
+
+if user_input:
+    response = get_response(user_input)
+    st.session_state.chat_history.append((user_input, response))
+    st.write(f"**Chatbot:** {response}")
+
+# Feedback and Learning for future enhancement
+st.subheader("📚 Improve Chatbot Knowledge")
+st.write("If the answer is incorrect, provide the correct response below.")
+new_question = st.text_input("New Question:", "", key="new_question")
+new_answer = st.text_area("New Answer:", "", key="new_answer")
+if st.button("Add to Knowledge Base"):
+    if new_question and new_answer:
+        faq_df = pd.concat([faq_df, pd.DataFrame([{ "question": new_question, "answer": new_answer }])], ignore_index=True)
+        save_faq_data(faq_df, faq_file)
+        st.success("✅ New Q&A added successfully!")
+    else:
+        st.error("⚠️ Please provide both question and answer!")
